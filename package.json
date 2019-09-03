@@ -24,15 +24,14 @@
   ],
   "main": "q-connection.js",
   "dependencies": {
-    "q": "~0.9.6",
-    "collections": "~0.1.24"
+    "bluebird-q": "github:marchant/bluebird-q",
+    "collections": "~5.1.x"
   },
   "devDependencies": {
-    "jasmine-node": "~1.7.0",
+    "jasmine-node": "^3.0.0",
     "cover": "*",
     "opener": "*",
-    "mocha": "~1.11.0",
-    "mocha-as-promised": "~1.4.0"
+    "mocha": "~6.2.0"
   },
   "scripts": {
     "test": "jasmine-node spec",

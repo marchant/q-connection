@@ -1,6 +1,6 @@
 
-var Q = require("q");
-var Queue = require("q/queue");
+var Q = require("bluebird-q");
+var Queue = require("bluebird-q/queue");
 
 // Coerces a Worker to a Connection
 // Idempotent: Passes Connections through unaltered

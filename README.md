@@ -19,7 +19,7 @@ Q-Connection works in Node and other CommonJS module loaders like
 This is how it looks:
 
 ```javascript
-var Q = require("q");
+var Q = require("bluebird-q");
 var Connection = require("q-connection");
 var remote = Connection(port, local);
 ```
@@ -90,7 +90,7 @@ most handy for it to be an object that supports an API and
 cannot be serialized with JSON.
 
 ```javascript
-var Q = require("q");
+var Q = require("bluebird-q");
 var counter = 0;
 var local = {
     "next": function () {

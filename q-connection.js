@@ -1,8 +1,79 @@
-var Q = require("q");
+var Q = require("bluebird-q");
 var LruMap = require("collections/lru-map");
 var Map = require("collections/map");
 var UUID = require("./lib/uuid");
 var adapt = require("./adapt");
+var Promise = Q.getBluebirdPromise(); //Returns native bluebird Promise;
+
+
+
+// Q.makePromise = function makePromise(descriptor, fallback) {
+//     if (fallback === void 0) {
+//         fallback = function (op) {
+//             return reject(new Error(
+//                 "Promise does not support operation: " + op
+//             ));
+//         };
+//     }
+//     var promise = new Promise(function(resolve, reject) {
+//         promise.promiseDispatch = function (resolve, op, args) {
+//             var result;
+//             try {
+//                 if (descriptor[op]) {
+//                     result = descriptor[op].apply(promise,      args);
+//                 } else {
+//                     result = fallback.call(promise, op, args);
+//                 }
+//             } catch (exception) {
+//                 result = reject(exception);
+//             }
+//             if (resolve) {
+//                 resolve(result);
+//             }
+//         };    
+//     });
+//     return promise;
+// };
+
+Q.makePromise = function makePromise(descriptor, fallback, inspect) {
+    if (fallback === void 0) {
+        fallback = function (op) {
+            return reject(new Error(
+                "Promise does not support operation: " + op
+            ));
+        };
+    }
+    if (inspect === void 0) {
+        inspect = function () {
+            return {state: "unknown"};
+        };
+    }
+
+    var promise = Object.create(Promise.prototype);
+
+
+    promise.inspect = inspect;
+
+    // XXX deprecated `valueOf` and `exception` support
+    if (inspect) {
+        var inspected = inspect();
+        if (inspected.state === "rejected") {
+            promise.exception = inspected.reason;
+        }
+
+        promise.valueOf = function () {
+            var inspected = inspect();
+            if (inspected.state === "pending" ||
+                inspected.state === "rejected") {
+                return promise;
+            }
+            return inspected.value;
+        };
+    }
+
+    return promise;
+};
+
 
 function debug() {
     //typeof console !== "undefined" && console.log.apply(console, arguments);
@@ -216,7 +287,7 @@ function Connection(connection, local, options) {
             }));
             return response;
         });
-        remotes.set(r,id);
+        remotes.set(remotePromise,id);
         return remotePromise;
     }
 
@@ -251,7 +322,7 @@ function Connection(connection, local, options) {
                 if (remotes.has(object)) {
                     id = remotes.get(object);
                     // "@l" because it is local to the recieving end
-                    return {"@l": id, "type": typeof object);
+                    return {"@l": id, "type": typeof object};
                 } else {
                   id = makeId();
                   makeLocal(id);
