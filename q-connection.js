@@ -7,6 +7,16 @@ var Promise = Q.getBluebirdPromise(); //Returns native bluebird Promise;
 
 
 
+Q.prototype.dispatch = function (op, args) {
+    var self = this;
+    var deferred = defer();
+    Q.nextTick(function () {
+        self.promiseDispatch(deferred.resolve, op, args);
+    });
+    return deferred.promise;
+};
+
+
 // Q.makePromise = function makePromise(descriptor, fallback) {
 //     if (fallback === void 0) {
 //         fallback = function (op) {
@@ -50,6 +60,22 @@ Q.makePromise = function makePromise(descriptor, fallback, inspect) {
     }
 
     var promise = Object.create(Promise.prototype);
+
+    promise.promiseDispatch = function (resolve, op, args) {
+        var result;
+        try {
+            if (descriptor[op]) {
+                result = descriptor[op].apply(promise, args);
+            } else {
+                result = fallback.call(promise, op, args);
+            }
+        } catch (exception) {
+            result = reject(exception);
+        }
+        if (resolve) {
+            resolve(result);
+        }
+    };
 
 
     promise.inspect = inspect;
