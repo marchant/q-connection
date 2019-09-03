@@ -9,7 +9,7 @@ var Promise = Q.getBluebirdPromise(); //Returns native bluebird Promise;
 
 Q.prototype.dispatch = function (op, args) {
     var self = this;
-    var deferred = defer();
+    var deferred = Q.defer();
     Q.nextTick(function () {
         self.promiseDispatch(deferred.resolve, op, args);
     });
