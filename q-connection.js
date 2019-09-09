@@ -40,10 +40,85 @@ Q.prototype.dispatch = function (op, args) {
 //             if (resolve) {
 //                 resolve(result);
 //             }
-//         };    
+//         };
 //     });
 //     return promise;
 // };
+
+// Q.makePromise = function makePromise(descriptor, fallback, inspect) {
+//     if (fallback === void 0) {
+//         fallback = function (op) {
+//             return reject(new Error(
+//                 "Promise does not support operation: " + op
+//             ));
+//         };
+//     }
+//     if (inspect === void 0) {
+//         inspect = function () {
+//             return {state: "unknown"};
+//         };
+//     }
+
+//     var promise = Object.create(Promise.prototype);
+
+
+//     promise.promiseDispatch = function (resolve, op, args) {
+//         var result;
+//         try {
+//             if (descriptor[op]) {
+//                 result = descriptor[op].apply(promise, args);
+//             } else {
+//                 result = fallback.call(promise, op, args);
+//             }
+//         } catch (exception) {
+//             result = reject(exception);
+//         }
+//         if (resolve) {
+//             resolve(result);
+//         }
+//     };
+//     promise.dispatch = function (op, args) {
+//         var self = this;
+//         var deferred = Q.defer();
+//         Q.nextTick(function () {
+//             self.promiseDispatch(deferred.resolve, op, args);
+//         });
+//         return deferred.promise;
+//     };
+
+//     promise.get = function (key) {
+//         return this.dispatch("get", [key]);
+//     };
+
+//     promise.invoke = function (name /*...args*/) {
+//         return this.dispatch("post", [name, array_slice(arguments, 1)]);
+//     };
+
+
+
+//     promise.inspect = inspect;
+
+//     // XXX deprecated `valueOf` and `exception` support
+//     if (inspect) {
+//         var inspected = inspect();
+//         if (inspected.state === "rejected") {
+//             promise.exception = inspected.reason;
+//         }
+
+//         promise.valueOf = function () {
+//             var inspected = inspect();
+//             if (inspected.state === "pending" ||
+//                 inspected.state === "rejected") {
+//                 return promise;
+//             }
+//             return inspected.value;
+//         };
+//     }
+
+//     return promise;
+// };
+
+
 
 Q.makePromise = function makePromise(descriptor, fallback, inspect) {
     if (fallback === void 0) {
@@ -59,55 +134,245 @@ Q.makePromise = function makePromise(descriptor, fallback, inspect) {
         };
     }
 
+    var handler = Object.create({});
     var promise = Object.create(Promise.prototype);
 
-    promise.promiseDispatch = function (resolve, op, args) {
-        var result;
-        try {
-            if (descriptor[op]) {
-                result = descriptor[op].apply(promise, args);
+    var proxy = new Proxy(promise, handler);
+    proxy.fallback = fallback;
+
+
+    //handler.apply = function (resolve, op, args) {
+    handler.apply = function (target, thisArg, argumentsList) {
+        var op = "post",
+            result;
+            if (target[op]) {
+                result = target[op].apply(thisArg, argumentsList);
             } else {
-                result = fallback.call(promise, op, args);
+                result = fallback.call(thisArg, op, argumentsList);
             }
-        } catch (exception) {
-            result = reject(exception);
-        }
-        if (resolve) {
-            resolve(result);
-        }
+        return result;
     };
 
 
-    promise.inspect = inspect;
 
-    // XXX deprecated `valueOf` and `exception` support
-    if (inspect) {
-        var inspected = inspect();
-        if (inspected.state === "rejected") {
-            promise.exception = inspected.reason;
-        }
 
-        promise.valueOf = function () {
-            var inspected = inspect();
-            if (inspected.state === "pending" ||
-                inspected.state === "rejected") {
-                return promise;
-            }
-            return inspected.value;
-        };
-    }
+    // handler.dispatch = function (op, args) {
+    //     var self = this;
+    //     var deferred = Q.defer();
+    //     Q.nextTick(function () {
+    //         self.promiseDispatch(deferred.resolve, op, args);
+    //     });
+    //     return deferred.promise;
+    // };
 
-    return promise;
+    // handler.get = function (key) {
+    //     return this.dispatch("get", [key]);
+    // };
+
+    // handler.invoke = function (name /*...args*/) {
+    //     return this.dispatch("post", [name, array_slice(arguments, 1)]);
+    // };
+
+
+
+    // handler.inspect = inspect;
+
+    // // XXX deprecated `valueOf` and `exception` support
+    // if (inspect) {
+    //     var inspected = inspect();
+    //     if (inspected.state === "rejected") {
+    //         promise.exception = inspected.reason;
+    //     }
+
+    //     promise.valueOf = function () {
+    //         var inspected = inspect();
+    //         if (inspected.state === "pending" ||
+    //             inspected.state === "rejected") {
+    //             return promise;
+    //         }
+    //         return inspected.value;
+    //     };
+    // }
+
+    return Promise.resolve(proxy);
 };
 
-
 function debug() {
-    //typeof console !== "undefined" && console.log.apply(console, arguments);
+    typeof console !== "undefined" && console.log.apply(console, arguments);
 }
 
 var rootId = "";
 
 var has = Object.prototype.hasOwnProperty;
+
+
+
+    // using ES6 Proxy to let Promises/Observables pretend like they're regular values.
+
+    // get the mapping function used for async objects
+    let getMapper = (target) => target instanceof Promise ? 'then' :
+    target instanceof Observable ? 'switchMap' : null;
+    // ^ fails if the Observable is in a local namespace e.g. Rx.Observable
+
+    // bind a value to its object if it's a function
+    let bindFn = (val, obj) => typeof val == 'function' ? val.bind(obj) : val;
+
+    // the proxy's trap handler
+    let PromiseProxyHandler = function PromiseProxyHandler(){
+        this.delegate = null;
+        this.resolve = null;
+        this.reject = null;
+        return this;
+    };
+
+    // function invocation
+    PromiseProxyHandler.prototype.apply = function (targetFn, that, args)     {
+        //console.log("PromiseProxyHandler apply called with targetFn:",targetFn,", that:",that,", args:",args);
+
+        //console.log("PromiseProxyHandler apply: ",targetFn, that, args);
+
+        // must wrap Proxy target in functions for this `apply` trap :(
+        // let target = targetFn();
+        // let mapper = getMapper(target);
+        // if(mapper) { // async
+        //     // transparently map; keep Proxy.
+        //     let val = target[mapper]((fn) => fn(args));
+        //     return new Proxy(() => val, handler);
+        // } else { // sync
+        //     // no-op, ditch proxy
+        //     return target.apply(that, args);
+        // }
+
+        let result = targetFn.apply(that,args);
+        return result;
+
+        if(result && typeof result.then === "function" ) {
+            // transparently map; keep Proxy.
+            let value = result["then"]((fn) => fn(args));
+            return new Proxy(() => value, this);
+        }
+
+        if(!result && this.delegate) {
+            return this.delegate.call(target, args);
+        }
+        return result;
+
+    };
+
+    var emptyFunction = function(){};
+    // property access
+    PromiseProxyHandler.prototype.get = function(target, property, receiver) {
+        console.log("PromiseProxyHandler get: ",target, property, receiver);
+        // let target = targetFn();
+        // let value;
+        // let mapper = getMapper(target);
+        // let bound = bindFn(target[prop], target);
+        // if(mapper) { // async
+        //     if(prop in target) {
+        //         // ditch Proxy when directly invoking Promise/Observable method
+        //         return bound;
+        //     } else {
+        //     // transparently map; keep Proxy.
+        //     let value = target[mapper]((o) => bindFn(o[prop], o));
+        //     return new Proxy(() => value, handler);
+        //     }
+        // } else {
+        //     // sync: no-op, ditch proxy
+        //     return bound;
+        // }
+
+        //console.log("PromiseProxyHandler get called with target:",target,", property:",property,", receiver:",receiver);
+
+
+        let result = this[property],
+        op;
+
+        //Catch when the Proxy Handler itself receives get:
+        // if(result === arguments.callee) {
+        //     return new Proxy(result, this);
+        // }
+
+        //Priority to local resolve and reject
+        if (typeof result === 'function' && (property === "resolve" || property ==="reject")) {
+            return result;
+        }
+
+        result = target[property];
+
+
+        if(property === "get") op = property;
+        if(property === "invoke") op = "post";
+
+        if(op && this.delegate) {
+            let delegate = this.delegate;
+
+            // if(!target.isResolved()) {
+            result = function _getter() {
+                var args = arguments,
+                    property = args[1],
+                    value;
+
+                    console.log("PromiseProxyHandler _getter called with ",arguments);
+
+                    if(args[1] === "timeout") {
+                        value = target[property];
+                        if (typeof value === 'function') {
+                            return new Proxy(value, this);
+                        }
+                    }
+                    else {
+                        value =  target.then(function() {
+                            return delegate.call(target, op, Array.from(args));
+                        });
+                    }
+                    return new Proxy(value, this);
+            };
+            return new Proxy(result, this);
+
+            // }
+            // else {
+            //     let value = target["then"]((o) => bindFn(o[property], o));
+            //     return new Proxy(() => value, this);
+            //     // return target.then(function() {
+            //     //     return delegate.call(target, op, Array.from(arguments));
+            //     // });
+            // }
+        }
+
+        //This is a get for a method
+        if (typeof result === 'function') {
+            return result;
+        }
+        else if(result && typeof result.then === "function" ) {
+        // transparently map; keep Proxy.
+            let value = result["then"]((o) => bindFn(o[property], o));
+            return new Proxy(() => value, handler);
+        }
+
+        // if(!result) {
+        //     console.log("property or method " + property +" is not implemented");
+        // }
+
+
+        // if(!result && handler.delegate) {
+        //     if(op) {
+        //         //return handler.delegate.call(target, "get", [property]);
+        //         return function(args) {
+        //             return handler.delegate.call(target, "get", args);
+        //         }
+        //     } else {
+        //         console.log("property or method " + property +" is not implemented");
+        //         return emptyFunction;
+        //     }
+        // }
+        return result;
+    };
+
+    let PromiseProxy = function PromiseProxy(promise, handler) {
+        return new Proxy(promise, handler);
+    }
+
+
 
 /**
  * @param connection
@@ -119,8 +384,27 @@ function Connection(connection, local, options) {
     var makeId = options.makeId || function () {
         return UUID.generate();
     };
-    var root = Q.defer();
-    root.resolve(local);
+    // var root = Q.defer();
+    // root.resolve(local);
+    var handler = new PromiseProxyHandler();
+    handler.delegate = connectionDelegateForId(rootId);
+    //var rootPromise = Promise.resolve(local);
+    var rootPromise = new Promise(function(resolve, reject) {
+            handler.resolve = function() {
+                console.log("makeRemote ID: ",id, ", promise resolve to ",arguments);
+                resolve.apply(this,arguments);
+            };
+            handler.reject = function() {
+                console.log("makeRemote ID: ",id, ", promise reject to ",arguments);
+                reject.apply(this,arguments);
+            };
+            resolve(local);
+        });
+
+
+    var root = PromiseProxy(rootPromise, handler);
+
+
     var locals  = LruMap(null, options.capacity || options.max || Infinity); // arrow head is local
     var remotes = LruMap(null, options.capacity || options.max || Infinity); // arrow head is remote
     connection = adapt(connection, options.origin);
@@ -198,9 +482,35 @@ function Connection(connection, local, options) {
 
             // forward the message to the local promise,
             // which will return a response promise
-            var local = getLocal(message.to).promise;
-            var response = local.dispatch(message.op, decode(message.args));
+            var local = getLocal(message.to);
+            var op = message.op;
+            var args = decode(message.args);
+            //var response = local.dispatch(message.op, decode(message.args));
             var envelope;
+
+        //    promise.promiseDispatch = function (resolve, op, operands) {
+        //     var args = array_slice(arguments);
+        //     if (messages) {
+        //         messages.push(args);
+        //         if (op === "when" && operands[1]) { // progress operand
+        //             progressListeners.push(operands[1]);
+        //         }
+        //     } else {
+        //         Q.nextTick(function () {
+        //             resolvedPromise.promiseDispatch.apply(resolvedPromise, args);
+        //         });
+        //     }
+        // };
+
+        response = local.invoke(args);
+
+            // var response = local.then(function(descriptor) {
+
+
+            // });
+
+
+
 
             // connect the local response promise with the
             // remote response promise:
@@ -278,29 +588,43 @@ function Connection(connection, local, options) {
     // be resolved later by a remote message
     function makeLocal(id) {
         if (hasLocal(id)) {
-            return getLocal(id).promise;
+            // return getLocal(id).promise;
+            return getLocal(id);
         } else {
-            var deferred = Q.defer();
-            locals.set(id, deferred);
-            return deferred.promise;
+            // var deferred = Q.defer();
+            // locals.set(id, deferred);
+            // return deferred.promise;
+            //var remotePromise = pretend(Promise.resolve(connection), connectionDelegateForId(id));
+
+            var handler = new PromiseProxyHandler();
+            // handler.delegate = connectionDelegateForId(id);
+            //This method will resolve or reject when dispatchLocal(id, op, value) is called.
+            var localPromise = new Promise(function(resolve, reject) {
+                handler.resolve = function() {
+                    console.log("makeRemote ID: ",id, ", promise resolve to ",arguments);
+                    resolve.apply(this,arguments);
+                };
+                handler.reject = function() {
+                    console.log("makeRemote ID: ",id, ", promise reject to ",arguments);
+                    reject.apply(this,arguments);
+                };
+                });
+
+             var promiseProxy = PromiseProxy(localPromise, handler);
+            locals.set(id, promiseProxy);
+            return promiseProxy;
         }
     }
 
     // a utility for resolving the local promise
     // for a given identifier.
     function dispatchLocal(id, op, value) {
-//        _debug(op + ':', "L" + JSON.stringify(id), JSON.stringify(value), typeof value);
+        _debug(op + ':', "L" + JSON.stringify(id), JSON.stringify(value), typeof value);
         getLocal(id)[op](value);
     }
 
-    // makes a promise that will send all of its events to a
-    // remote object.
-    function makeRemote(id) {
-        var remotePromise = Q.makePromise({
-            when: function () {
-                return this;
-            }
-        }, function (op, args) {
+    function connectionDelegateForId(id) {
+        return function connectionDelegate(op, args) {
             var localId = makeId();
             var response = makeLocal(localId);
             _debug("sending:", "R" + JSON.stringify(id), JSON.stringify(op), JSON.stringify(encode(args)));
@@ -312,9 +636,67 @@ function Connection(connection, local, options) {
                 "args": encode(args)
             }));
             return response;
+        };
+    };
+
+
+
+    // makes a promise that will send all of its events to a
+    // remote object.
+    function makeRemote(id) {
+        var handler = new PromiseProxyHandler();
+        handler.delegate = function remoteConnectionDelegate(op, args) {
+            var localId = makeId();
+            var response = makeLocal(localId);
+            _debug("sending:", "R" + JSON.stringify(id), JSON.stringify(op), JSON.stringify(encode(args)));
+            connection.put(JSON.stringify({
+                "type": "send",
+                "to": id,
+                "from": localId,
+                "op": op,
+                "args": encode(args)
+            }));
+            return response;
+        };
+        //This method will resolve or reject when dispatchLocal(id, op, value) is called.
+        var remotePromise = new Promise(function(resolve, reject) {
+            handler.resolve = function() {
+                console.log("makeRemote ID: ",id, ", promise resolve to ",arguments);
+                resolve.apply(this,arguments);
+            };
+            handler.reject = function() {
+                console.log("makeRemote ID: ",id, ", promise reject to ",arguments);
+                reject.apply(this,arguments);
+            };
         });
-        remotes.set(remotePromise,id);
-        return remotePromise;
+
+        if(id === rootId) {
+            handler.resolve(true);
+        }
+
+         var promiseProxy = PromiseProxy(remotePromise, handler);
+
+
+        // var remotePromise = Q.makePromise({
+        //     when: function () {
+        //         return this;
+        //     }
+        // }, function (op, args) {
+        //     var localId = makeId();
+        //     var response = makeLocal(localId);
+        //     _debug("sending:", "R" + JSON.stringify(id), JSON.stringify(op), JSON.stringify(encode(args)));
+        //     connection.put(JSON.stringify({
+        //         "type": "send",
+        //         "to": id,
+        //         "from": localId,
+        //         "op": op,
+        //         "args": encode(args)
+        //     }));
+        //     return response;
+        // });
+
+        remotes.set(promiseProxy,id);
+        return promiseProxy;
     }
 
     // serializes an object tree, encoding promises such
