@@ -24,8 +24,8 @@
   ],
   "main": "q-connection.js",
   "dependencies": {
-    "q": "~0.9.6",
-    "collections": "~0.1.24"
+    "q": "^1.0.1",
+    "collections": "~5.1.x"
   },
   "devDependencies": {
     "jasmine-node": "~1.7.0",
