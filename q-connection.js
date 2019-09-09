@@ -251,7 +251,7 @@ function Connection(connection, local, options) {
                 if (remotes.has(object)) {
                     id = remotes.get(object);
                     // "@l" because it is local to the recieving end
-                    return {"@l": id, "type": typeof object);
+                    return {"@l": id, "type": typeof object};
                 } else {
                   id = makeId();
                   makeLocal(id);
