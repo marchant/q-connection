@@ -216,7 +216,7 @@ function Connection(connection, local, options) {
             }));
             return response;
         });
-        remotes.set(r,id);
+        remotes.set(remotePromise,id);
         return remotePromise;
     }
 
