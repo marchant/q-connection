@@ -24,7 +24,7 @@
   ],
   "main": "q-connection.js",
   "dependencies": {
-    "q": "^1.0.1",
+    "bluebird-q": "marchant/bluebird-q#master",
     "collections": "~5.1.x"
   },
   "devDependencies": {
