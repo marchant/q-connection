@@ -1,5 +1,4 @@
 /*global describe,it,expect */
-require("./lib/jasmine-promise");
 var Q = require("bluebird-q");
 var Queue = require("bluebird-q/queue");
 var Connection = require("../q-connection");
