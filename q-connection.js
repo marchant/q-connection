@@ -1,11 +1,138 @@
-var Q = require("q");
+var Q = require("bluebird-q");
 var LruMap = require("collections/lru-map");
 var Map = require("collections/map");
 var UUID = require("./lib/uuid");
 var adapt = require("./adapt");
 
+
+// Function.prototype._apply = Function.prototype.apply;
+
+// Function.prototype.apply = function(thisArg, argsArray) {
+
+//     if(argsArray && typeof argsArray.length !== "number") {
+//         console.error("call to Function.prototype.apply with thisArg:",thisArg," argsArray:",argsArray," will throw");
+//     }
+//     try {
+//         return this._apply(thisArg, argsArray)
+//     }
+//     catch(error) {
+//         console.error("Function.prototype.apply error: ",error );
+//     }
+// };
+
+/**
+ * Constructs a Promise with a promise descriptor object and optional fallback
+ * function.  The descriptor contains methods like when(rejected), get(name),
+ * set(name, value), post(name, args), and delete(name), which all
+ * return either a value, a promise for a value, or a rejection.  The fallback
+ * accepts the operation name, a resolver, and any further arguments that would
+ * have been forwarded to the appropriate method above had a method been
+ * provided with the proper name.  The API makes no guarantees about the nature
+ * of the returned object, apart from that it is usable whereever promises are
+ * bought and sold.
+ */
+Q.makePromise = function makePromise(descriptor, fallback, inspect) {
+    if (fallback === void 0) {
+        fallback = function (op) {
+            return reject(new Error(
+                "Promise does not support operation: " + op
+            ));
+        };
+    }
+    if (inspect === void 0) {
+        inspect = function () {
+            return {state: "unknown"};
+        };
+    }
+
+    //var promise = Object.create(Promise.prototype);
+    var promise = Q.resolve(true);
+
+    promise.get = function () {
+        var result = promise.dispatch("get", Array.prototype.slice.call(arguments));
+        result.dispatch = promise.dispatch;
+        result.invoke = result.post = function () {
+            var args = Array.prototype.slice.call(arguments);
+
+            return result.then(function(resolvedValue) {
+                //This is the id of the remote object we want to talk to:
+                return promise.dispatch("post", args,resolvedValue["@"]);
+            });
+        };
+
+        return result;
+    };
+
+    promise.post = function () {
+        var args = Array.prototype.slice.call(arguments),
+            self = this,
+            result = this.then(function(resolvedValue) {
+            console.log("post ", args, " resolved valeu is ",resolvedValue);
+
+            var nextPromise =  self.dispatch("post", args);
+            nextPromise.get = promise.get;
+            nextPromise.post = promise.post;
+            nextPromise.invoke = promise.invoke;
+            nextPromise.dispatch = promise.dispatch;
+            return nextPromise;
+        });
+
+        result.get = promise.get;
+        result.post = promise.post;
+        result.invoke = promise.invoke;
+        result.dispatch = promise.dispatch;
+
+        return result;
+    };
+
+    promise.invoke = function () {
+        var args = Array.prototype.slice.call(arguments);
+
+        return this.then(function(resolvedValue) {
+            //resolvedValue contains the id of the remote object we want to talk to:
+            return promise.dispatch("post", args,resolvedValue["@"]);
+        });
+    };
+
+    promise.dispatch = function (op, args, localIdArgument) {
+        var result;
+        try {
+            if (descriptor[op]) {
+                result = descriptor[op].apply(promise, args);
+            } else {
+                result = fallback.call(promise, op, args, localIdArgument);
+            }
+            return result;
+
+        } catch (exception) {
+            return Promise.reject(exception);
+        }
+    };
+
+    promise.inspect = inspect;
+
+    // XXX deprecated `valueOf` and `exception` support
+    if (inspect) {
+        var inspected = inspect();
+        if (inspected.state === "rejected") {
+            promise.exception = inspected.reason;
+        }
+
+        promise.valueOf = function () {
+            var inspected = inspect();
+            if (inspected.state === "pending" ||
+                inspected.state === "rejected") {
+                return promise;
+            }
+            return inspected.value;
+        };
+    }
+
+    return promise;
+}
+
 function debug() {
-    //typeof console !== "undefined" && console.log.apply(console, arguments);
+    typeof console !== "undefined" && console.log.apply(console, arguments);
 }
 
 var rootId = "";
@@ -22,10 +149,13 @@ function Connection(connection, local, options) {
     var makeId = options.makeId || function () {
         return UUID.generate();
     };
-    var root = Q.defer();
-    root.resolve(local);
     var locals  = LruMap(null, options.capacity || options.max || Infinity); // arrow head is local
     var remotes = LruMap(null, options.capacity || options.max || Infinity); // arrow head is remote
+
+    var root = Q.defer();
+    root.resolve(local);
+    makeLocal("",root);
+
     connection = adapt(connection, options.origin);
 
     var debugKey = Math.random().toString(16).slice(2, 4).toUpperCase() + ":";
@@ -103,6 +233,7 @@ function Connection(connection, local, options) {
             // which will return a response promise
             var local = getLocal(message.to).promise;
             var response = local.dispatch(message.op, decode(message.args));
+            //var response = local.call(message.op, decode(message.args));
             var envelope;
 
             // connect the local response promise with the
@@ -170,22 +301,25 @@ function Connection(connection, local, options) {
     };
 
     function hasLocal(id) {
-        return id === rootId ? true : locals.has(id);
+        //return id === rootId ? true : locals.has(id);
+        return locals.has(id);
     }
 
     function getLocal(id) {
-        return id === rootId ? root : locals.get(id);
+        //return id === rootId ? root : locals.get(id);
+        return locals.get(id);
     }
 
     // construct a local promise, such that it can
     // be resolved later by a remote message
-    function makeLocal(id) {
+    function makeLocal(id, deferred) {
         if (hasLocal(id)) {
             return getLocal(id).promise;
         } else {
-            var deferred = Q.defer();
-            locals.set(id, deferred);
-            return deferred.promise;
+            var localDeferred = deferred || Q.defer();
+
+            locals.set(id, localDeferred);
+            return localDeferred.promise;
         }
     }
 
@@ -203,13 +337,14 @@ function Connection(connection, local, options) {
             when: function () {
                 return this;
             }
-        }, function (op, args) {
+        }, function (op, args, idArgument) {
+            var localIdArgument = idArgument || id;
             var localId = makeId();
             var response = makeLocal(localId);
-            _debug("sending:", "R" + JSON.stringify(id), JSON.stringify(op), JSON.stringify(encode(args)));
+            _debug("sending:", "R" + JSON.stringify(localIdArgument), JSON.stringify(op), JSON.stringify(encode(args)));
             connection.put(JSON.stringify({
                 "type": "send",
-                "to": id,
+                "to": localIdArgument,
                 "from": localId,
                 "op": op,
                 "args": encode(args)
